@@ -1,0 +1,25 @@
+
+For the Requirements.txt
+| Component                     | Libraries Used                                        | Purpose                                              |
+| ----------------------------- | ----------------------------------------------------- | ---------------------------------------------------- |
+| Ultrasonic Sensors            | `hcsr04sensor`, `RPi.GPIO`                            | Distance detection to know when a bottle is inserted |
+| Servo Motor                   | `pigpio`, `rpi_hardware_pwm`                          | Opens/closes bin lid or bottle compartment           |
+| Camera 1 (Face Recognition)   | `opencv-python`, `face-recognition`, `dlib`           | Registers and verifies users for points              |
+| Camera 2 (Bottle Recognition) | `opencv-python`, `torch`, `torchvision`, `tensorflow` | Identifies bottle type and assigns reward points     |
+| 4x4 Keypad (I2C)              | `pcf8574`, `adafruit-circuitpython-pcf8574`           | Handles user input via I2C interface                 |
+| LCD (I2C)                     | `adafruit-circuitpython-charlcd`, `adafruit-blinka`   | Displays status messages or points                   |
+| Buzzer                        | `gpiozero`, `simpleaudio`                             | Sound feedback for successful actions                |
+| Database                      | `sqlite3-binary`, `pandas`                            | Store user data and transaction logs                 |
+| Logging & Config              | `loguru`, `python-dotenv`                             | Keeps your code clean and maintainable               |
+
+Setup in the raspberry
+    sudo apt update && sudo apt upgrade -y
+    sudo apt install python3-pip python3-opencv python3-pigpio
+    pip install -r requirements.txt
+
+Enable interface
+sudo raspi-config
+    Camera
+    I2C
+    GPIO
+    SSH (optional for remote dev)

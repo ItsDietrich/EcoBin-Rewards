@@ -1,0 +1,12 @@
+# Centralized pin definitions
+class Pins:
+    ULTRASONIC1_TRIG = 17
+    ULTRASONIC1_ECHO = 27
+    ULTRASONIC2_TRIG = 22
+    ULTRASONIC2_ECHO = 23
+    BUZZER = 24
+    SERVO_LID = 18
+    SERVO_SORT = 19
+    #BUTTON_START = 25
+    #STATUS_LED = 5
+    I2C_BUS = 1  # SDA=GPIO2, SCL=GPIO3

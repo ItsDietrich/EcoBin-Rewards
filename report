@@ -1,0 +1,767 @@
+# EcoRewards smart bin project report
+
+---
+
+## System architecture
+
+- **Core flow:** User presses start → face/ID verification → lid opens → ultrasonic detects insertion → bottle camera classifies → points allocated → saved to database → admin web app manages deductions.
+- **Entities:** Smart bin (Raspberry Pi 4 + peripherals) and Canteen web app (admin UI for redemption).
+- **Design principles:** Modular services, resilient hardware control, queued database writes, audit logs, and offline-first local caching for network hiccups.
+
+> Similar smart bins use ultrasonic sensors, servos, LCDs, and Raspberry Pi with a web app for monitoring/control, validating your architecture’s practicality.
+
+---
+
+## Hardware schematic and wiring
+
+Below is a clear, buildable mapping. Use a 5V PSU rated 3A+, and power servos from a separate 5V rail with common ground to avoid brownouts.
+
+### Pin mapping table
+
+| Module | Signal | Raspberry Pi pin | Notes |
+|---|---|---|---|
+| Camera 1 (user) | CSI/USB | CSI0 or USB | Choose CSI for lower latency |
+| Camera 2 (bottle) | CSI/USB | CSI1 or USB | Maintain fixed focus on chute |
+| Ultrasonic 1 (bottle detect) | TRIG/ECHO | GPIO 17 / GPIO 27 | Use 1 kΩ + 2 kΩ divider on ECHO to Pi |
+| Ultrasonic 2 (bin status) | TRIG/ECHO | GPIO 22 / GPIO 23 | Same divider on ECHO |
+| Buzzer | + / GND | GPIO 24 | Use NPN transistor + diode if >20 mA |
+| Keypad (I2C) | SDA/SCL | GPIO 2 (SDA) / GPIO 3 (SCL) | 3.3V logic |
+| LCD (I2C) | SDA/SCL | GPIO 2 (SDA) / GPIO 3 (SCL) | Shared I2C bus |
+| Servo 1 (lid) | PWM | GPIO 18 (PWM) | External 5V rail, common GND |
+| Servo 2 (routing) | PWM | GPIO 19 (PWM) | External 5V rail, common GND |
+| Start button | BTN | GPIO 25 | Configure pull-down |
+| Status LED (optional) | LED | GPIO 5 | 330 Ω resistor |
+
+### Textual schematic notes
+
+- **Power:** 5V 3A PSU to Pi. Servos powered from separate 5V 3–5A supply. Tie grounds together (Pi GND ↔ servo PSU GND).
+- **Ultrasonic ECHO level shifting:** Use resistor divider (ECHO → 2 kΩ to GND, 1 kΩ to GPIO) to bring 5V down to ~3.3V.
+- **Buzzer/actuators:** If buzzer draws >20 mA, drive via NPN transistor (e.g., 2N2222) with 1N4148/1N5819 flyback if inductive load.
+- **EMI:** Route servo power separately, twist signal+ground to reduce noise near camera ribbons.
+- **Cameras:** Fixed mounts; set exposure and white balance once to stabilize classification.
+
+> Prior builds for smart bins highlight similar sensor stacks and a responsive web interface for lid control and bin monitoring, which parallels your module choices.
+
+---
+
+## Implementation steps
+
+### 1. Raspberry Pi OS and dependencies
+
+- **OS:** Raspberry Pi OS (64-bit recommended).
+- **Packages:**
+  - System: `sudo apt update && sudo apt install python3-pip python3-opencv libatlas-base-dev i2c-tools`
+  - Python: `pip install flask mysql-connector-python face-recognition dlib RPi.GPIO smbus2 picamera2`
+  - Optional ML: `pip install torch torchvision` (if you deploy bottle classifier with PyTorch).
+
+### 2. Enable interfaces
+
+- `sudo raspi-config` → enable Camera, I2C, SSH.
+- Verify I2C devices: `i2cdetect -y 1` (expect LCD and keypad addresses).
+
+### 3. Database setup (MySQL/MariaDB)
+
+- Create database and tables:
+  - `users(id VARCHAR(32) PRIMARY KEY, name VARCHAR(64), points INT DEFAULT 0, face_path VARCHAR(255), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`
+  - `transactions(id INT AUTO_INCREMENT PRIMARY KEY, user_id VARCHAR(32), type ENUM('credit','debit'), amount INT, bottle_type VARCHAR(32), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`
+  - `events(id INT AUTO_INCREMENT PRIMARY KEY, event VARCHAR(64), details TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`
+
+### 4. Model assets
+
+- Start with a simple heuristic or a small CNN for bottle classes: PET, Glass, Aluminum. Save model to `models/bottle_classifier.pt`.
+- Capture and label a small dataset from your bin’s camera for domain accuracy.
+
+### 5. Project structure
+
+```
+ecoRewards/
+  bin/
+    main.py
+    hardware/
+      gpio_pins.py
+      ultrasonic.py
+      servo.py
+      buzzer.py
+      keypad_i2c.py
+      lcd_i2c.py
+      camera.py
+    services/
+      auth.py
+      classify.py
+      points.py
+      db.py
+      workflow.py
+      config.py
+  web/
+    app.py
+    templates/
+      login.html
+      dashboard.html
+      user.html
+    static/
+      styles.css
+  models/
+    bottle_classifier.pt
+  data/
+    users/
+      <user_id>/face.jpg
+    logs/
+  README.md
+```
+
+### 6. Test incrementally
+
+- Bring up one peripheral at a time. Log to `data/logs`.
+- Add fail-safes: timeout if ultrasonics noisy, manual override button to close lid.
+
+> Smart bin implementations often iterate per sensor and use a web app to control and observe states, validating this stepwise approach.
+
+---
+
+## Smart bin code
+
+All code is Python 3, modular, and minimal external dependencies. Replace placeholders like database credentials and model paths for production.
+
+### bin/hardware/gpio_pins.py
+
+```python
+# Centralized pin definitions
+class Pins:
+    ULTRASONIC1_TRIG = 17
+    ULTRASONIC1_ECHO = 27
+    ULTRASONIC2_TRIG = 22
+    ULTRASONIC2_ECHO = 23
+    BUZZER = 24
+    SERVO_LID = 18
+    SERVO_ROUTE = 19
+    BUTTON_START = 25
+    STATUS_LED = 5
+    I2C_BUS = 1  # SDA=GPIO2, SCL=GPIO3
+```
+
+### bin/hardware/ultrasonic.py
+
+```python
+import time
+import RPi.GPIO as GPIO
+
+GPIO.setmode(GPIO.BCM)
+
+def setup(trig, echo):
+    GPIO.setup(trig, GPIO.OUT)
+    GPIO.setup(echo, GPIO.IN)
+    GPIO.output(trig, False)
+    time.sleep(0.05)
+
+def read_distance_cm(trig, echo, timeout=0.03):
+    GPIO.output(trig, True)
+    time.sleep(0.00001)
+    GPIO.output(trig, False)
+
+    t0 = time.time()
+    while GPIO.input(echo) == 0:
+        if time.time() - t0 > timeout:
+            return None
+    pulse_start = time.time()
+
+    while GPIO.input(echo) == 1:
+        if time.time() - pulse_start > timeout:
+            return None
+    pulse_end = time.time()
+
+    duration = pulse_end - pulse_start
+    return round(duration * 17150, 2)
+
+def is_object_near(trig, echo, threshold_cm=10):
+    d = read_distance_cm(trig, echo)
+    return d is not None and d < threshold_cm
+```
+
+### bin/hardware/servo.py
+
+```python
+import time
+import RPi.GPIO as GPIO
+
+GPIO.setmode(GPIO.BCM)
+
+class Servo:
+    def __init__(self, pin, freq=50):
+        self.pin = pin
+        GPIO.setup(pin, GPIO.OUT)
+        self.pwm = GPIO.PWM(pin, freq)
+        self.pwm.start(0)
+
+    def angle(self, deg):
+        duty = 2 + (deg / 18.0)  # approx map 0..180 -> 2..12
+        self.pwm.ChangeDutyCycle(duty)
+        time.sleep(0.4)
+        self.pwm.ChangeDutyCycle(0)
+
+    def close(self):
+        self.pwm.stop()
+```
+
+### bin/hardware/buzzer.py
+
+```python
+import time
+import RPi.GPIO as GPIO
+
+GPIO.setmode(GPIO.BCM)
+
+class Buzzer:
+    def __init__(self, pin):
+        self.pin = pin
+        GPIO.setup(pin, GPIO.OUT)
+
+    def beep(self, times=1, duration=0.1, gap=0.1):
+        for _ in range(times):
+            GPIO.output(self.pin, GPIO.HIGH)
+            time.sleep(duration)
+            GPIO.output(self.pin, GPIO.LOW)
+            time.sleep(gap)
+```
+
+### bin/hardware/lcd_i2c.py
+
+```python
+from smbus2 import SMBus
+import time
+
+# Simple HD44780 via I2C backpack (PCF8574). Adjust address as discovered by i2cdetect.
+LCD_ADDR = 0x27
+BUS_NUM = 1
+
+# Minimal 4-bit mode writer (abstracted for brevity):
+class LCD:
+    def __init__(self, addr=LCD_ADDR, bus_num=BUS_NUM):
+        self.addr = addr
+        self.bus = SMBus(bus_num)
+        self._init()
+
+    def _write(self, data):
+        self.bus.write_byte(self.addr, data)
+
+    def _strobe(self, data):
+        self._write(data | 0x04)
+        time.sleep(0.0005)
+        self._write(data & ~0x04)
+        time.sleep(0.0001)
+
+    def _send(self, data, mode):
+        high = mode | (data & 0xF0) | 0x08
+        low  = mode | ((data << 4) & 0xF0) | 0x08
+        self._strobe(high); self._strobe(low)
+
+    def _init(self):
+        time.sleep(0.05)
+        self.cmd(0x33); self.cmd(0x32); self.cmd(0x28); self.cmd(0x0C); self.cmd(0x06); self.cmd(0x01)
+
+    def cmd(self, cmd):
+        self._send(cmd, 0x00)
+
+    def write(self, text, line=0):
+        addr = 0x80 + (0x40 * line)
+        self.cmd(addr)
+        for ch in text.ljust(16)[:16]:
+            self._send(ord(ch), 0x01)
+```
+
+### bin/hardware/keypad_i2c.py
+
+```python
+from smbus2 import SMBus
+import time
+
+# Example for TTP229 or similar I2C keypad; adjust address/reading per module datasheet
+KEYPAD_ADDR = 0x20
+BUS_NUM = 1
+
+class KeypadI2C:
+    def __init__(self, addr=KEYPAD_ADDR, bus_num=BUS_NUM):
+        self.bus = SMBus(bus_num)
+        self.addr = addr
+
+    def read_key(self):
+        # Read status register; map to character
+        data = self.bus.read_byte(self.addr)
+        # Map data to key; placeholder mapping:
+        keymap = {0x01: '0', 0x02: '1', 0x04: '2', 0x08: '3', 0x10: '4', 0x20: '5', 0x40: '6', 0x80: '7'}
+        return keymap.get(data, None)
+
+    def read_id_blocking(self, lcd=None, prompt="Enter ID:"):
+        buf = ""
+        if lcd: lcd.write(prompt, 0)
+        while True:
+            k = self.read_key()
+            if k is None:
+                time.sleep(0.05); continue
+            if k == '#':  # end
+                return buf
+            elif k == '*':  # backspace
+                buf = buf[:-1]
+            else:
+                buf += k
+            if lcd: lcd.write(f"ID: {buf}", 1)
+```
+
+### bin/hardware/camera.py
+
+```python
+import cv2
+
+def capture_frame(camera_index=0):
+    cap = cv2.VideoCapture(camera_index)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        raise RuntimeError("Camera capture failed")
+    return frame
+
+def save_image(frame, path):
+    cv2.imwrite(path, frame)
+```
+
+### bin/services/db.py
+
+```python
+import mysql.connector
+from contextlib import contextmanager
+
+DB_CFG = {
+    "host": "localhost",
+    "user": "root",
+    "password": "yourpassword",
+    "database": "ecoRewards",
+    "autocommit": True
+}
+
+@contextmanager
+def conn_cursor():
+    conn = mysql.connector.connect(**DB_CFG)
+    cur = conn.cursor()
+    try:
+        yield conn, cur
+    finally:
+        cur.close()
+        conn.close()
+
+def ensure_schema():
+    with conn_cursor() as (_, cur):
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+          id VARCHAR(32) PRIMARY KEY,
+          name VARCHAR(64),
+          points INT DEFAULT 0,
+          face_path VARCHAR(255),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS transactions (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id VARCHAR(32),
+          type ENUM('credit','debit'),
+          amount INT,
+          bottle_type VARCHAR(32),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS events (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          event VARCHAR(64),
+          details TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )""")
+
+def get_user(user_id):
+    with conn_cursor() as (_, cur):
+        cur.execute("SELECT id, name, points, face_path FROM users WHERE id=%s", (user_id,))
+        return cur.fetchone()
+
+def upsert_user(user_id, name, face_path):
+    with conn_cursor() as (_, cur):
+        cur.execute("""
+        INSERT INTO users (id, name, points, face_path) VALUES (%s,%s,0,%s)
+        ON DUPLICATE KEY UPDATE name=VALUES(name), face_path=VALUES(face_path)
+        """, (user_id, name, face_path))
+
+def add_points(user_id, amount, bottle_type):
+    with conn_cursor() as (_, cur):
+        cur.execute("UPDATE users SET points = points + %s WHERE id=%s", (amount, user_id))
+        cur.execute("INSERT INTO transactions (user_id, type, amount, bottle_type) VALUES (%s,'credit',%s,%s)",
+                    (user_id, amount, bottle_type))
+
+def deduct_points(user_id, amount, reason):
+    with conn_cursor() as (_, cur):
+        cur.execute("UPDATE users SET points = points - %s WHERE id=%s", (amount, user_id))
+        cur.execute("INSERT INTO transactions (user_id, type, amount, bottle_type) VALUES (%s,'debit',%s,%s)",
+                    (user_id, amount, reason))
+
+def log_event(event, details):
+    with conn_cursor() as (_, cur):
+        cur.execute("INSERT INTO events (event, details) VALUES (%s,%s)", (event, details))
+```
+
+### bin/services/auth.py
+
+```python
+import os
+import cv2
+import face_recognition
+from bin.hardware.camera import capture_frame, save_image
+from bin.services.db import get_user, upsert_user
+
+USERS_DIR = "data/users"
+
+def verify_or_register(lcd=None, keypad=None):
+    if lcd: lcd.write("Press start", 0)
+    # Capture face for verification
+    frame = capture_frame(camera_index=0)
+    os.makedirs(USERS_DIR, exist_ok=True)
+    temp_path = "data/current_face.jpg"
+    save_image(frame, temp_path)
+
+    current_img = face_recognition.load_image_file(temp_path)
+    encs = face_recognition.face_encodings(current_img)
+    current_enc = encs[0] if encs else None
+
+    # Walk users and compare
+    matched_id = None
+    if current_enc:
+        for user_id in os.listdir(USERS_DIR):
+            face_path = os.path.join(USERS_DIR, user_id, "face.jpg")
+            if not os.path.exists(face_path): continue
+            known_img = face_recognition.load_image_file(face_path)
+            known_encs = face_recognition.face_encodings(known_img)
+            if not known_encs: continue
+            match = face_recognition.compare_faces([known_encs[0]], current_enc, tolerance=0.5)
+            if match[0]:
+                matched_id = user_id
+                break
+
+    if matched_id:
+        if lcd: lcd.write(f"Hello, {matched_id}", 0)
+        return matched_id
+
+    # Register new user
+    if lcd: lcd.write("Not registered", 0); lcd.write("Enter ID:", 1)
+    user_id = keypad.read_id_blocking(lcd=lcd, prompt="Enter ID:")
+    user_dir = os.path.join(USERS_DIR, user_id)
+    os.makedirs(user_dir, exist_ok=True)
+    reg_face_path = os.path.join(user_dir, "face.jpg")
+    save_image(frame, reg_face_path)
+    upsert_user(user_id, name=user_id, face_path=reg_face_path)
+    if lcd: lcd.write("Registered!", 0)
+    return user_id
+```
+
+### bin/services/classify.py
+
+```python
+import torch
+import torchvision.transforms as T
+import cv2
+from bin.hardware.camera import capture_frame
+
+# Simple mock points; replace with your trained model
+POINTS_MAP = {"PET": 10, "Glass": 15, "Aluminum": 20}
+
+class DummyClassifier:
+    def __init__(self):
+        pass
+    def predict(self, img_bgr):
+        # TODO: replace with actual model inference
+        return "PET"
+
+def classify_bottle(camera_index=1):
+    frame = capture_frame(camera_index)
+    clf = DummyClassifier()
+    label = clf.predict(frame)
+    points = POINTS_MAP.get(label, 5)
+    return label, points
+```
+
+### bin/services/points.py
+
+```python
+from bin.services.db import add_points
+
+def allocate_points(user_id, bottle_type, points):
+    add_points(user_id, points, bottle_type)
+    return True
+```
+
+### bin/services/workflow.py
+
+```python
+import time
+import RPi.GPIO as GPIO
+from bin.hardware.gpio_pins import Pins
+from bin.hardware.ultrasonic import setup as us_setup, is_object_near
+from bin.hardware.servo import Servo
+from bin.hardware.buzzer import Buzzer
+from bin.hardware.lcd_i2c import LCD
+from bin.hardware.keypad_i2c import KeypadI2C
+from bin.services.auth import verify_or_register
+from bin.services.classify import classify_bottle
+from bin.services.points import allocate_points
+from bin.services.db import log_event
+
+def run_cycle():
+    GPIO.setmode(GPIO.BCM)
+    # Setup hardware
+    us_setup(Pins.ULTRASONIC1_TRIG, Pins.ULTRASONIC1_ECHO)
+    us_setup(Pins.ULTRASONIC2_TRIG, Pins.ULTRASONIC2_ECHO)
+
+    servo_lid = Servo(Pins.SERVO_LID)
+    servo_route = Servo(Pins.SERVO_ROUTE)
+    buzzer = Buzzer(Pins.BUZZER)
+    lcd = LCD()
+    keypad = KeypadI2C()
+
+    GPIO.setup(Pins.BUTTON_START, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
+
+    try:
+        lcd.write("ecoRewards", 0)
+        lcd.write("Press start", 1)
+        # Wait for button
+        while GPIO.input(Pins.BUTTON_START) == 0:
+            time.sleep(0.05)
+
+        buzzer.beep(1)
+        user_id = verify_or_register(lcd=lcd, keypad=keypad)
+        log_event("user_verified", f"user_id={user_id}")
+
+        # Open lid
+        lcd.write("Opening lid...", 0)
+        servo_lid.angle(90)
+
+        # Wait for bottle
+        lcd.write("Insert bottle", 1)
+        t_start = time.time()
+        while not is_object_near(Pins.ULTRASONIC1_TRIG, Pins.ULTRASONIC1_ECHO, threshold_cm=8):
+            if time.time() - t_start > 15:
+                lcd.write("Timeout", 0)
+                servo_lid.angle(0)
+                buzzer.beep(2)
+                log_event("timeout", "no bottle inserted")
+                return
+
+        buzzer.beep(1)
+        lcd.write("Detecting...", 0)
+
+        # Trigger classification
+        bottle_type, points = classify_bottle(camera_index=1)
+        lcd.write(f"{bottle_type}: {points}pts", 1)
+        log_event("classified", f"type={bottle_type}, points={points}")
+
+        # Close lid
+        time.sleep(1.0)
+        servo_lid.angle(0)
+
+        # Ask insert again (simple: press start within 5s)
+        lcd.write("Press start to add", 0)
+        lcd.write("or wait to finish", 1)
+        t_again = time.time()
+        while time.time() - t_again < 5:
+            if GPIO.input(Pins.BUTTON_START) == 1:
+                # Repeat cycle quickly: open lid and re-detect
+                servo_lid.angle(90)
+                while not is_object_near(Pins.ULTRASONIC1_TRIG, Pins.ULTRASONIC1_ECHO, threshold_cm=8):
+                    time.sleep(0.05)
+                bottle_type2, points2 = classify_bottle(camera_index=1)
+                lcd.write(f"{bottle_type2}: {points2}pts", 1)
+                log_event("classified", f"type={bottle_type2}, points={points2}")
+                points += points2
+                servo_lid.angle(0)
+                t_again = time.time()  # extend window
+
+        # Allocate points
+        allocate_points(user_id, bottle_type, points)
+        buzzer.beep(2, duration=0.08)
+        lcd.write(f"Total +{points}", 0)
+        lcd.write("Saved to DB", 1)
+        log_event("points_allocated", f"user={user_id}, points={points}")
+
+    finally:
+        servo_lid.close()
+        servo_route.close()
+        GPIO.cleanup()
+```
+
+### bin/main.py
+
+```python
+from bin.services.db import ensure_schema
+from bin.services.workflow import run_cycle
+
+def main():
+    ensure_schema()
+    while True:
+        try:
+            run_cycle()
+        except Exception as e:
+            print("Error:", e)
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+## Canteen admin web app (Flask)
+
+### web/app.py
+
+```python
+from flask import Flask, render_template, request, redirect, url_for, flash
+import mysql.connector
+
+app = Flask(__name__)
+app.secret_key = "change-me"
+
+DB_CFG = dict(host="localhost", user="root", password="yourpassword", database="ecoRewards")
+
+def db():
+    return mysql.connector.connect(**DB_CFG)
+
+@app.route("/")
+def dashboard():
+    conn = db(); cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT id, name, points FROM users ORDER BY created_at DESC LIMIT 50")
+    users = cur.fetchall()
+    cur.close(); conn.close()
+    return render_template("dashboard.html", users=users)
+
+@app.route("/user/<user_id>")
+def user_page(user_id):
+    conn = db(); cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT id, name, points FROM users WHERE id=%s", (user_id,))
+    user = cur.fetchone()
+    cur.execute("SELECT id, type, amount, bottle_type, created_at FROM transactions WHERE user_id=%s ORDER BY id DESC", (user_id,))
+    tx = cur.fetchall()
+    cur.close(); conn.close()
+    return render_template("user.html", user=user, tx=tx)
+
+@app.route("/deduct", methods=["POST"])
+def deduct():
+    user_id = request.form["user_id"]
+    amount = int(request.form["amount"])
+    reason = request.form.get("reason", "canteen")
+    conn = db(); cur = conn.cursor()
+    cur.execute("UPDATE users SET points = points - %s WHERE id=%s", (amount, user_id))
+    cur.execute("INSERT INTO transactions (user_id, type, amount, bottle_type) VALUES (%s,'debit',%s,%s)", (user_id, amount, reason))
+    conn.commit()
+    cur.close(); conn.close()
+    flash(f"Deducted {amount} points from {user_id}")
+    return redirect(url_for("user_page", user_id=user_id))
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080, debug=True)
+```
+
+### web/templates/dashboard.html
+
+```html
+<!doctype html>
+<html>
+<head>
+  <title>ecoRewards Admin</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <h1>Users</h1>
+  <table>
+    <tr><th>ID</th><th>Name</th><th>Points</th><th>Actions</th></tr>
+    {% for u in users %}
+      <tr>
+        <td>{{u.id}}</td><td>{{u.name}}</td><td>{{u.points}}</td>
+        <td><a href="/user/{{u.id}}">View</a></td>
+      </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>
+```
+
+### web/templates/user.html
+
+```html
+<!doctype html>
+<html>
+<head>
+  <title>User {{user.id}}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <h1>{{user.name}} ({{user.id}})</h1>
+  <p>Points: {{user.points}}</p>
+
+  <h2>Deduct points</h2>
+  <form method="post" action="/deduct">
+    <input type="hidden" name="user_id" value="{{user.id}}">
+    <label>Amount:</label>
+    <input type="number" name="amount" min="1" required>
+    <label>Reason:</label>
+    <input type="text" name="reason" placeholder="canteen">
+    <button type="submit">Deduct</button>
+  </form>
+
+  <h2>Transactions</h2>
+  <table>
+    <tr><th>ID</th><th>Type</th><th>Amount</th><th>Bottle/Reason</th><th>Date</th></tr>
+    {% for t in tx %}
+      <tr><td>{{t.id}}</td><td>{{t.type}}</td><td>{{t.amount}}</td><td>{{t.bottle_type}}</td><td>{{t.created_at}}</td></tr>
+    {% endfor %}
+  </table>
+
+  <p><a href="/">Back</a></p>
+</body>
+</html>
+```
+
+### web/static/styles.css
+
+```css
+body { font-family: system-ui, sans-serif; margin: 2rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ddd; padding: 8px; }
+th { background: #f5f5f5; text-align: left; }
+h1, h2 { margin-top: 1.5rem; }
+form input, form button { margin: 0.5rem; }
+```
+
+---
+
+## Test and deployment checklist
+
+- **Power integrity:** Use separate 5V supply for servos; confirm common ground.
+- **I2C scan:** `i2cdetect -y 1` shows LCD/keypad addresses; update code if different.
+- **Camera indices:** Verify user camera is index 0, bottle camera index 1; adjust in code.
+- **Face registration:** Test registration flow; confirm `data/users/<id>/face.jpg`.
+- **Classification:** Start with dummy classifier; later replace with trained model.
+- **Database:** Run `ensure_schema()` once; verify tables and initial users.
+- **Web app:** `python web/app.py` → open `http://<pi-ip>:8080`.
+
+> Building in stages and verifying each peripheral reduces integration errors, a pattern echoed in similar Raspberry Pi smart bin projects.
+
+---
+
+## Notes on classification and accuracy
+
+- Begin with a rule-based approach using shape/color cues under controlled lighting.
+- When you have ~100–300 labeled images per class from your actual bin, fine-tune a small CNN (e.g., MobileNetV2) for robust classification.
+- Fix lighting, camera angle, and background—consistency beats model complexity early on.
+
+---
+
+## Next steps
+
+- Do you want a printable wiring diagram image? I can translate the mapping into an annotated diagram.
+- If your keypad uses a specific I2C chip, share the model so I can provide the exact read routine.
+- Tell me your MySQL credentials and IP plan if the web app and bin will run on separate devices; I’ll add secure auth and role-based access.
+
+> Sources:  Smart Eco Bin project demonstrating Raspberry Pi sensors/actuators with a web interface; useful for validating the multi-sensor architecture and iterative testing approach.

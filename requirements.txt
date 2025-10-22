@@ -1,0 +1,47 @@
+# === Core Raspberry Pi GPIO and Hardware Control ===
+RPi.GPIO
+gpiozero
+smbus2
+
+# === PCF8574 I2C Expander for Keypad ===
+i2c-tools
+
+# === LCD Display (I2C) ===
+RPLCD
+
+# === Ultrasonic Sensor ===
+hcsr04sensor
+
+# === Servo Motor Control ===
+pigpio
+rpi_hardware_pwm
+# === Camera and Image Processing ===
+opencv-python
+opencv-contrib-python
+imutils
+numpy
+
+# === Face Recognition (using dlib) ===
+face-recognition
+dlib
+
+# === Object (Bottle) Detection (optional ML-based) ===
+tensorflow
+torch
+torchvision
+
+# === Sound/Buzzer ===
+simpleaudio
+playsound==1.3.0
+
+# === Data Storage (User Points & Bottle Data) ===
+pandas
+sqlite3-binary
+
+# === Utility and Logging ===
+python-dotenv
+loguru
+
+
+
+

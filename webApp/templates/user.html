@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+  <title>User {{user.id}}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <h1>{{user.name}} ({{user.id}})</h1>
+  <p>Points: {{user.points}}</p>
+
+  <h2>Deduct points</h2>
+  <form method="post" action="/deduct">
+    <input type="hidden" name="user_id" value="{{user.id}}">
+    <label>Amount:</label>
+    <input type="number" name="amount" min="1" required>
+    <label>Reason:</label>
+    <input type="text" name="reason" placeholder="canteen">
+    <button type="submit">Deduct</button>
+  </form>
+
+  <h2>Transactions</h2>
+  <table>
+    <tr><th>ID</th><th>Type</th><th>Amount</th><th>Bottle/Reason</th><th>Date</th></tr>
+    {% for t in tx %}
+      <tr><td>{{t.id}}</td><td>{{t.type}}</td><td>{{t.amount}}</td><td>{{t.bottle_type}}</td><td>{{t.created_at}}</td></tr>
+    {% endfor %}
+  </table>
+
+  <p><a href="/">Back</a></p>
+</body>
+</html>

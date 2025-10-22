@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+<head>
+  <title>ecoRewards Admin</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <h1>Users</h1>
+  <table>
+    <tr><th>ID</th><th>Name</th><th>Points</th><th>Actions</th></tr>
+    {% for u in users %}
+      <tr>
+        <td>{{u.id}}</td><td>{{u.name}}</td><td>{{u.points}}</td>
+        <td><a href="/user/{{u.id}}">View</a></td>
+      </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>

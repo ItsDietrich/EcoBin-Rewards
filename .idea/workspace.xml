@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="94f4527b-d46a-4400-a479-6fa348ae47d6" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/.idea/EcoBin-Rewards.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Components/buzzer.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Components/camera.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Components/keypad_i2c.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Components/lcd_i2c.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Components/pins.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Components/servo.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Components/ultrasonic.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/NOTEs" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/config.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/report" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/auth.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/classify.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/db.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/points.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/workflow.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test/Buzzer_test_active.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test/Buzzer_test_passive.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test/Keypad_lcd_test.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test/LCD_test.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test/Servo_test.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test/UltraSonic_test.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test/camera_test.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/webApp/app.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/webApp/static/styles.css" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/webApp/templates/dashboard.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/webApp/templates/login.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/webApp/templates/user.html" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+        <option value="HTML File" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4
+}</component>
+  <component name="ProjectId" id="349EvAzvzTzwmwvq9eN9PaRyQBr" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "DefaultHtmlFileTemplate": "HTML File",
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "main"
+  }
+}]]></component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-python-sdk-41e8cd69c857-64d779b69b7a-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-251.26927.90" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="94f4527b-d46a-4400-a479-6fa348ae47d6" name="Changes" comment="" />
+      <created>1760617615786</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1760617615786</updated>
+    </task>
+    <servers />
+  </component>
+</project>
