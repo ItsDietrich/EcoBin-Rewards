@@ -1,10 +1,19 @@
+import os
 from flask import Flask, render_template, request, redirect, url_for, flash
 import mysql.connector
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
-app.secret_key = "change-me"
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-only-change-me")
 
-DB_CFG = dict(host="localhost", user="root", password="yourpassword", database="ecoRewards")
+DB_CFG = dict(
+    host=os.getenv("DB_HOST", "localhost"),
+    user=os.getenv("DB_USER", "root"),
+    password=os.getenv("DB_PASSWORD", ""),
+    database=os.getenv("DB_NAME", "ecoRewards"),
+)
 
 def db():
     return mysql.connector.connect(**DB_CFG)
@@ -41,4 +50,4 @@ def deduct():
     return redirect(url_for("user_page", user_id=user_id))
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080, debug=True)
+    app.run(host="0.0.0.0", port=8080, debug=os.getenv("FLASK_DEBUG", "false").lower() == "true")

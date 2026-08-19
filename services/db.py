@@ -1,11 +1,15 @@
+import os
 import mysql.connector
 from contextlib import contextmanager
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DB_CFG = {
-    "host": "localhost",
-    "user": "root",
-    "password": "admin",
-    "database": "ecoRewards",
+    "host": os.getenv("DB_HOST", "localhost"),
+    "user": os.getenv("DB_USER", "root"),
+    "password": os.getenv("DB_PASSWORD", ""),
+    "database": os.getenv("DB_NAME", "ecoRewards"),
     "autocommit": True
 }
 
