@@ -53,4 +53,4 @@ Credentials and the Flask secret are read from environment variables (`python-do
 
 ## Why this project
 
-This is my Stage 4 (Embedded AI / Edge AI) project on my [engineering roadmap](https://github.com/ItsDietrich/ItsDietrich) — the point of it was to get one project that actually spans the full stack I'm aiming for: firmware-level sensor/actuator control, a CV pipeline on real hardware, and the backend/web layer that makes the hardware useful to an actual user.
+The goal was one project that spans the full stack I work in: firmware-level sensor/actuator control, a CV pipeline on real hardware, and the backend/web layer that makes the hardware useful to an actual user.
